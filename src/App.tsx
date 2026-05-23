@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth, db } from './lib/firebase';
-import { signInWithPopup, GoogleAuthProvider, signOut } from 'firebase/auth';
+import { signInWithRedirect, GoogleAuthProvider, signOut, getRedirectResult } from 'firebase/auth';
 import { doc, getDoc, setDoc, addDoc, collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
 import { LogIn, LogOut, Calendar, Users, Settings, PlusCircle, Menu, X, Scissors, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -30,6 +30,23 @@ export default function App() {
 
   // Merge real user and mock user
   const currentUser = mockUser || user;
+
+  useEffect(() => {
+    // Check for redirect result on mount
+    const checkRedirect = async () => {
+      try {
+        const result = await getRedirectResult(auth);
+        if (result) {
+          console.log("Successfully signed in via redirect");
+          setIsLoggingIn(false);
+        }
+      } catch (err: any) {
+        console.error("Redirect login error:", err);
+        setLoginError(`Sign in failed: ${err.message || 'Please try again.'}`);
+      }
+    };
+    checkRedirect();
+  }, []);
 
   useEffect(() => {
     async function fetchUserRole() {
@@ -110,22 +127,16 @@ export default function App() {
     setLoginError('');
     const provider = new GoogleAuthProvider();
     try {
-      await signInWithPopup(auth, provider);
-      setIsLoggingIn(false); // Close modal on success
+      await signInWithRedirect(auth, provider);
     } catch (err: any) {
       console.error("Login failed", err);
-      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
-        setLoginError('Login was cancelled. Please try again.');
-      } else if (err.code === 'auth/popup-blocked') {
-        setLoginError('Login popup was blocked by your browser. Please allow popups for this site.');
-      } else if (err.code === 'auth/operation-not-allowed') {
+      if (err.code === 'auth/operation-not-allowed') {
         setLoginError('Google sign-in is not enabled in the Firebase console.');
       } else if (err.code === 'auth/unauthorized-domain') {
         setLoginError('This domain is not authorized for OAuth. Please add it to the Firebase console.');
       } else {
         setLoginError(`Sign in failed: ${err.message || 'Please try again.'}`);
       }
-    } finally {
       setIsAuthProcessing(false);
     }
   };
