@@ -1,10 +1,10 @@
+
 {
-  "projectId": "autonomous-disk-scf5x",
-  "appId": "1:827760422759:web:95510eec1ceb5a77f509c2",
-  "apiKey": "AIzaSyArrtxSkAiSen48EYF0kFzjP5bhkzWZQ78",
-  "authDomain": "autonomous-disk-scf5x.firebaseapp.com",
-  "firestoreDatabaseId": "ai-studio-2e2662bf-0d57-4063-9fce-7a583b409af3",
-  "storageBucket": "autonomous-disk-scf5x.firebasestorage.app",
-  "messagingSenderId": "827760422759",
-  "measurementId": ""
-}
+  "apiKey": "AIzaSyBVWM5HnkOg--j-TYwjMM_CliM4iPmNVK0",
+  "authDomain": "online-booking-management.firebaseapp.com",
+  "projectId": "online-booking-management",
+  "storageBucket": "online-booking-management.firebasestorage.app",
+  "messagingSenderId": "614171231497",
+  "appId": "1:614171231497:web:7d5aa3161324d351467fd8",
+  "measurementId": "G-LXPMT2BDG2"
+};  
