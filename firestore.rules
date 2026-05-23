@@ -1,0 +1,128 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        request.auth.token.email == 'kthura397@gmail.com' ||
+        (exists(/databases/$(database)/documents/staff/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/staff/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    function isStaff() {
+      return isSignedIn() && (
+        request.auth.token.email == 'kthura397@gmail.com' ||
+        exists(/databases/$(database)/documents/staff/$(request.auth.uid))
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    // Service Rules
+    match /services/{serviceId} {
+      allow read: if true; // Everyone can see services
+      allow write: if isAdmin();
+    }
+
+    // Staff Rules
+    match /staff/{staffId} {
+      allow read: if true; // Everyone can see staff (to choose for booking)
+      
+      // Allow creation if admin, or if creating own record during migration (email must match)
+      allow create: if isAdmin() || (
+        isSignedIn() && 
+        incoming().email == request.auth.token.email
+      );
+
+      // Allow updates if admin, or if updating own record (cannot change role)
+      allow update: if isAdmin() || (
+        isSignedIn() && 
+        existing().email == request.auth.token.email && 
+        incoming().role == existing().role
+      );
+
+      // Allow deletion if admin, or if deleting own record (migration)
+      allow delete: if isAdmin() || (
+        isSignedIn() && 
+        existing().email == request.auth.token.email
+      );
+    }
+
+    // Booking Rules
+    match /bookings/{bookingId} {
+      function isValidBooking(data) {
+        return data.keys().hasAll(['customerId', 'serviceId', 'staffId', 'startTime', 'endTime', 'status', 'createdAt', 'updatedAt'])
+          && data.keys().size() == 8
+          && data.customerId is string
+          && data.serviceId is string
+          && (data.staffId is string || data.staffId == null)
+          && data.status in ['pending', 'confirmed', 'arrived', 'in_service', 'completed', 'cancelled', 'no_show']
+          && data.createdAt == request.time
+          && data.updatedAt == request.time;
+      }
+
+      allow list: if true; // Everyone can see slots (but not PII)
+      allow get: if true;
+      allow create: if isSignedIn() 
+        && incoming().customerId == request.auth.uid
+        && isValidBooking(incoming());
+      
+      allow update: if isSignedIn() && (
+        // Admin can update anything
+        (isAdmin() && isValidBooking(incoming())) ||
+        // Staff can update status
+        (isStaff() && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) && incoming().updatedAt == request.time) ||
+        // Customer can cancel their own
+        (isOwner(existing().customerId) && incoming().status == 'cancelled' && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']) && incoming().updatedAt == request.time)
+      );
+      
+      allow delete: if isAdmin();
+
+      // PII isolation
+      match /customer/pii {
+        function isValidPII(data) {
+          return data.keys().hasAll(['customerName', 'customerEmail', 'customerPhone'])
+            && data.keys().size() == 3
+            && data.customerName is string && data.customerName.size() <= 100
+            && data.customerEmail is string && data.customerEmail.size() <= 128
+            && data.customerPhone is string && data.customerPhone.size() <= 30;
+        }
+
+        allow read: if isStaff() || isOwner(get(/databases/$(database)/documents/bookings/$(bookingId)).data.customerId);
+        allow create: if isStaff() || (isSignedIn() && request.auth.uid == getAfter(/databases/$(database)/documents/bookings/$(bookingId)).data.customerId && isValidPII(incoming()));
+        allow update: if isStaff() || (isSignedIn() && request.auth.uid == get(/databases/$(database)/documents/bookings/$(bookingId)).data.customerId && isValidPII(incoming()));
+        allow delete: if isStaff();
+      }
+    }
+
+    // Config Rules
+    match /config/global {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+  }
+}

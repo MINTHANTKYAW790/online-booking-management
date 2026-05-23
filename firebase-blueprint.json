@@ -1,0 +1,97 @@
+{
+  "entities": {
+    "service": {
+      "title": "Service",
+      "description": "A treatment or service offered by the studio",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "duration": { "type": "number" },
+        "price": { "type": "number" },
+        "maxParallel": { "type": "number" },
+        "requiredSkill": { "type": "string" },
+        "color": { "type": "string" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["name", "duration", "price", "isActive"]
+    },
+    "staff": {
+      "title": "Staff",
+      "description": "Practitioners at the studio",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "email": { "type": "string" },
+        "skills": { "type": "array", "items": { "type": "string" } },
+        "role": { "type": "string", "enum": ["admin", "staff"] },
+        "isActive": { "type": "boolean" },
+        "schedule": { "type": "object" }
+      },
+      "required": ["name", "email", "role", "isActive"]
+    },
+    "booking": {
+      "title": "Booking",
+      "description": "Appointment records (Publicly viewable metadata)",
+      "type": "object",
+      "properties": {
+        "customerId": { "type": "string" },
+        "serviceId": { "type": "string" },
+        "staffId": { "type": "string" },
+        "startTime": { "type": "object" },
+        "endTime": { "type": "object" },
+        "status": { "type": "string", "enum": ["pending", "confirmed", "arrived", "in_service", "completed", "cancelled", "no_show"] },
+        "createdAt": { "type": "object" },
+        "updatedAt": { "type": "object" }
+      },
+      "required": ["customerId", "serviceId", "staffId", "startTime", "endTime", "status", "createdAt", "updatedAt"]
+    },
+    "bookingPII": {
+      "title": "Booking PII",
+      "description": "Personally Identifiable Information for a booking",
+      "type": "object",
+      "properties": {
+        "customerName": { "type": "string" },
+        "customerEmail": { "type": "string" },
+        "customerPhone": { "type": "string" }
+      },
+      "required": ["customerName", "customerEmail", "customerPhone"]
+    },
+    "config": {
+      "title": "Store Config",
+      "description": "Studio global settings and profile management",
+      "type": "object",
+      "properties": {
+        "storeName": { "type": "string" },
+        "tagline": { "type": "string" },
+        "logoUrl": { "type": "string" },
+        "address": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "email": { "type": "string" },
+        "website": { "type": "string" },
+        "socialMediaLinks": { 
+          "type": "object",
+          "properties": {
+            "facebook": { "type": "string" },
+            "instagram": { "type": "string" },
+            "tiktok": { "type": "string" }
+          }
+        },
+        "openTime": { "type": "string" },
+        "closeTime": { "type": "string" },
+        "lastBookingTime": { "type": "string" },
+        "bufferTime": { "type": "number" },
+        "bookingInterval": { "type": "number" },
+        "themePrimaryColor": { "type": "string" },
+        "closedDay": { "type": "number" }
+      }
+    }
+  },
+  "firestore": {
+    "services": { "schema": "service", "description": "Studios services" },
+    "staff": { "schema": "staff", "description": "Studio practitioners" },
+    "bookings": { "schema": "booking", "description": "Appointment records" },
+    "bookings/{bookingId}/customer/pii": { "schema": "bookingPII", "description": "Private customer details" },
+    "config/global": { "schema": "config", "description": "Global store settings" }
+  }
+}

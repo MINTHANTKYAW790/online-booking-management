@@ -1,0 +1,8 @@
+{
+  "name": "Lumière Nail Spa",
+  "description": "Professional booking and management system for nail spa businesses featuring smart capacity control, staff scheduling, and real-time calendars.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
