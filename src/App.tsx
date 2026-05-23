@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { useAuthState } from 'react-firebase-hooks/auth';
 import { auth, db } from './lib/firebase';
-import { signInWithRedirect, GoogleAuthProvider, signOut, getRedirectResult } from 'firebase/auth';
+import { signInWithRedirect, signInWithPopup, GoogleAuthProvider, signOut, getRedirectResult } from 'firebase/auth';
 import { doc, getDoc, setDoc, addDoc, collection, query, where, getDocs, deleteDoc } from 'firebase/firestore';
 import { LogIn, LogOut, Calendar, Users, Settings, PlusCircle, Menu, X, Scissors, Sparkles } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -30,14 +30,31 @@ export default function App() {
 
   // Merge real user and mock user
   const currentUser = mockUser || user;
+  const isAdmin = currentUser?.email === 'kthura397@gmail.com' || userRole === 'admin';
+  const isStaff = userRole === 'staff' || isAdmin;
+
+  // Debugging logs
+  useEffect(() => {
+    if (!loading) {
+      console.log("App State Change:", { 
+        email: currentUser?.email, 
+        userRole, 
+        isAdmin, 
+        activeTab,
+        isAuthenticated: !!currentUser
+      });
+    }
+  }, [currentUser, userRole, isAdmin, activeTab, loading]);
 
   useEffect(() => {
     // Check for redirect result on mount
     const checkRedirect = async () => {
+      if (window.location.hostname === 'localhost') return; // Don't check for redirect results on localhost
+
       try {
         const result = await getRedirectResult(auth);
         if (result) {
-          console.log("Successfully signed in via redirect");
+          console.log("Redirect login successful:", result.user.email);
           setIsLoggingIn(false);
         }
       } catch (err: any) {
@@ -50,56 +67,57 @@ export default function App() {
 
   useEffect(() => {
     async function fetchUserRole() {
-      try {
-        if (currentUser) {
-          // If it's the mock admin, set role directly
-          if (mockUser) {
-            setUserRole('admin');
-            setActiveTab('admin-calendar');
-            return;
-          }
+      if (loading) return; // Wait for Firebase to finish checking auth state
 
-          // 1. Try UID first
-          if (currentUser.email === 'kthura397@gmail.com') {
+      if (!currentUser) {
+        setUserRole(null);
+        setActiveTab('booking');
+        return;
+      }
+
+      try {
+        // 1. Hardcoded Admin Email
+        if (currentUser.email === 'kthura397@gmail.com') {
           setUserRole('admin');
           if (activeTab === 'booking') setActiveTab('admin-calendar');
           return;
         }
 
+        // 2. Mock Admin
+        if (mockUser) {
+          setUserRole('admin');
+          setActiveTab('admin-calendar');
+          return;
+        }
+
+        // 3. Database check
         const staffDoc = await getDoc(doc(db, 'staff', currentUser.uid));
-          if (staffDoc.exists()) {
-            setUserRole(staffDoc.data().role);
+        if (staffDoc.exists()) {
+          const role = staffDoc.data().role;
+          setUserRole(role);
+          if (activeTab === 'booking') setActiveTab('admin-calendar');
+        } else {
+          // Fallback to Email search (migration)
+          const q = query(collection(db, 'staff'), where('email', '==', currentUser.email));
+          const snap = await getDocs(q);
+          
+          if (!snap.empty) {
+            const staffData = snap.docs[0].data();
+            await setDoc(doc(db, 'staff', currentUser.uid), staffData);
+            await deleteDoc(snap.docs[0].ref);
+            setUserRole(staffData.role);
             if (activeTab === 'booking') setActiveTab('admin-calendar');
           } else {
-            // 2. Fallback to Email if UID not found (for pre-added staff)
-            const q = query(collection(db, 'staff'), where('email', '==', currentUser.email));
-            const snap = await getDocs(q);
-            
-            if (!snap.empty) {
-              const staffData = snap.docs[0].data();
-              // Migrate document to use UID as ID
-              await setDoc(doc(db, 'staff', currentUser.uid), staffData);
-              await deleteDoc(snap.docs[0].ref);
-              
-              setUserRole(staffData.role);
-              if (activeTab === 'booking') setActiveTab('admin-calendar');
-            } else {
-              setUserRole('customer');
-            }
+            setUserRole('customer');
           }
-        } else {
-          setUserRole(null);
-          setActiveTab('booking');
         }
       } catch (err: any) {
         console.error("Failed to fetch user role:", err);
-        // If it's a connectivity issue, we might want to still allow customer view if possible
-        // but for now we just log it.
         setUserRole('customer'); 
       }
     }
     fetchUserRole();
-  }, [currentUser, mockUser]);
+  }, [currentUser?.uid, currentUser?.email, mockUser, loading]);
 
   const handleDemoLogin = (e: any) => {
     e.preventDefault();
@@ -126,8 +144,19 @@ export default function App() {
     setIsAuthProcessing(true);
     setLoginError('');
     const provider = new GoogleAuthProvider();
+    
     try {
-      await signInWithRedirect(auth, provider);
+      // Smart Login: Popups for localhost, Redirects for production
+      if (window.location.hostname === 'localhost') {
+        console.log("Local environment: Using popup login");
+        const result = await signInWithPopup(auth, provider);
+        if (result.user) {
+          setIsLoggingIn(false);
+        }
+      } else {
+        console.log("Production environment: Using redirect login");
+        await signInWithRedirect(auth, provider);
+      }
     } catch (err: any) {
       console.error("Login failed", err);
       if (err.code === 'auth/operation-not-allowed') {
@@ -137,6 +166,7 @@ export default function App() {
       } else {
         setLoginError(`Sign in failed: ${err.message || 'Please try again.'}`);
       }
+    } finally {
       setIsAuthProcessing(false);
     }
   };
@@ -146,24 +176,18 @@ export default function App() {
     setMockUser(null);
   };
 
-  const isAdmin = userRole === 'admin';
-  const isStaff = userRole === 'staff' || isAdmin;
-
   const initializeStore = async () => {
     if (!currentUser || !isAdmin) return;
     try {
-      await setDoc(doc(db, 'config', 'global'), {
+      const configRef = doc(db, 'config', 'global');
+      await setDoc(configRef, {
         storeName: 'Lumière Nail Spa',
         tagline: 'Elegance at your fingertips',
         address: '123 Beauty Lane, Glow City, GC 54321',
         phoneNumber: '+1 (555) 000-1111',
         email: 'hello@lumiere.spa',
         website: 'www.lumiere.spa',
-        socialMediaLinks: {
-          facebook: '',
-          instagram: '',
-          tiktok: ''
-        },
+        socialMediaLinks: { facebook: '', instagram: '', tiktok: '' },
         openTime: '09:00',
         closeTime: '21:00',
         lastBookingTime: '20:00',
@@ -186,27 +210,25 @@ export default function App() {
       }
 
       const staffRef = doc(db, 'staff', currentUser.uid);
-      const staffSnap = await getDoc(staffRef);
-      if (!staffSnap.exists()) {
-        const schedule: any = {};
-        ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].forEach(day => {
-          schedule[day] = { start: '09:00', end: '18:00', isWorking: true };
-        });
-        
-        await setDoc(staffRef, {
-          name: currentUser.displayName || 'Admin',
-          email: currentUser.email,
-          role: 'admin',
-          skills: serviceRefs,
-          schedule,
-          isActive: true
-        });
-      }
+      const schedule: any = {};
+      ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'].forEach(day => {
+        schedule[day] = { start: '09:00', end: '18:00', isWorking: true };
+      });
+      
+      await setDoc(staffRef, {
+        name: currentUser.displayName || 'Admin',
+        email: currentUser.email,
+        role: 'admin',
+        skills: serviceRefs,
+        schedule,
+        isActive: true
+      });
       
       alert("Store initialized successfully!");
       window.location.reload();
-    } catch (err) {
+    } catch (err: any) {
       console.error("Init failed", err);
+      alert("Initialization failed: " + err.message);
     }
   };
 
@@ -241,37 +263,12 @@ export default function App() {
               </div>
 
               <nav className="flex-1 space-y-2">
-                <SidebarItem 
-                  active={activeTab === 'admin-calendar'} 
-                  onClick={() => setActiveTab('admin-calendar')}
-                  icon={<Calendar size={20} />}
-                  label="Schedule"
-                />
-                <SidebarItem 
-                  active={activeTab === 'admin-services'} 
-                  onClick={() => setActiveTab('admin-services')}
-                  icon={<PlusCircle size={20} />}
-                  label="Services"
-                />
-                <SidebarItem 
-                  active={activeTab === 'admin-staff'} 
-                  onClick={() => setActiveTab('admin-staff')}
-                  icon={<Users size={20} />}
-                  label="Staff"
-                />
-                <SidebarItem 
-                  active={activeTab === 'admin-config'} 
-                  onClick={() => setActiveTab('admin-config')}
-                  icon={<Settings size={20} />}
-                  label="Settings"
-                />
+                <SidebarItem active={activeTab === 'admin-calendar'} onClick={() => setActiveTab('admin-calendar')} icon={<Calendar size={20} />} label="Schedule" />
+                <SidebarItem active={activeTab === 'admin-services'} onClick={() => setActiveTab('admin-services')} icon={<PlusCircle size={20} />} label="Services" />
+                <SidebarItem active={activeTab === 'admin-staff'} onClick={() => setActiveTab('admin-staff')} icon={<Users size={20} />} label="Staff" />
+                <SidebarItem active={activeTab === 'admin-config'} onClick={() => setActiveTab('admin-config')} icon={<Settings size={20} />} label="Settings" />
                 <div className="pt-8 border-t border-brand-100">
-                  <SidebarItem 
-                    active={activeTab === 'booking'} 
-                    onClick={() => setActiveTab('booking')}
-                    icon={<PlusCircle size={20} />}
-                    label="Customer View"
-                  />
+                  <SidebarItem active={activeTab === 'booking'} onClick={() => setActiveTab('booking')} icon={<PlusCircle size={20} />} label="Customer View" />
                 </div>
               </nav>
 
@@ -306,17 +303,11 @@ export default function App() {
               <h1 className="text-xl font-display font-bold">Lumière</h1>
             </div>
             {currentUser ? (
-              <button 
-                onClick={handleLogout}
-                className="flex items-center gap-2 text-sm font-medium hover:text-brand-600 transition-colors"
-              >
+              <button onClick={handleLogout} className="flex items-center gap-2 text-sm font-medium hover:text-brand-600 transition-colors">
                 Sign Out <LogOut size={16} />
               </button>
             ) : (
-              <button 
-                onClick={() => setIsLoggingIn(true)}
-                className="flex items-center gap-2 px-4 py-2 bg-brand-950 text-white rounded-lg text-sm font-medium hover:bg-brand-800 transition-colors shadow-lg"
-              >
+              <button onClick={() => setIsLoggingIn(true)} className="flex items-center gap-2 px-4 py-2 bg-brand-950 text-white rounded-lg text-sm font-medium hover:bg-brand-800 transition-colors shadow-lg">
                 <LogIn size={16} /> Login
               </button>
             )}
@@ -327,6 +318,23 @@ export default function App() {
           {mockUser && (
             <div className="fixed bottom-4 left-4 z-50 px-4 py-2 bg-amber-100 border border-amber-200 text-amber-800 text-xs font-bold rounded-full flex items-center gap-2 shadow-lg animate-pulse">
               <Sparkles size={14} /> Demo Mode: Database writes disabled. Sign in with Google to test full features.
+            </div>
+          )}
+
+          {isAdmin && activeTab === 'booking' && (
+            <div className="mb-8 p-6 bg-brand-950 text-white rounded-3xl shadow-2xl flex flex-col md:flex-row items-center justify-between gap-6">
+              <div className="flex items-center gap-4">
+                <div className="w-12 h-12 bg-brand-600 rounded-2xl flex items-center justify-center shadow-lg">
+                  <Scissors className="text-white" />
+                </div>
+                <div>
+                  <h3 className="text-xl font-display font-bold">Admin Setup Required</h3>
+                  <p className="text-brand-300 text-sm">Welcome! You need to initialize your store settings and services.</p>
+                </div>
+              </div>
+              <button onClick={initializeStore} className="px-8 py-3 bg-white text-brand-950 rounded-2xl font-bold hover:bg-brand-100 transition-all shadow-xl whitespace-nowrap">
+                Initialize Store
+              </button>
             </div>
           )}
 
@@ -354,7 +362,7 @@ export default function App() {
           <motion.div 
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8 relative overflow-hidden"
+            className="bg-white w-full max-sm rounded-[2.5rem] shadow-2xl p-8 relative overflow-hidden"
           >
             <button onClick={() => setIsLoggingIn(false)} className="absolute top-6 right-6 text-brand-400 hover:text-brand-950">
               <X size={24} />
