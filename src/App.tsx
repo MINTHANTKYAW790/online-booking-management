@@ -36,30 +36,25 @@ export default function App() {
   // Debugging logs
   useEffect(() => {
     if (!loading) {
-      console.log("App State Change:", { 
+      console.log("Auth State Updated:", { 
         email: currentUser?.email, 
-        userRole, 
         isAdmin, 
-        activeTab,
-        isAuthenticated: !!currentUser
+        isAuthenticated: !!currentUser 
       });
     }
-  }, [currentUser, userRole, isAdmin, activeTab, loading]);
+  }, [currentUser, isAdmin, loading]);
 
   useEffect(() => {
-    // Check for redirect result on mount
+    // Always check for redirect result on mount (handles fallback from production)
     const checkRedirect = async () => {
-      if (window.location.hostname === 'localhost') return; // Don't check for redirect results on localhost
-
       try {
         const result = await getRedirectResult(auth);
-        if (result) {
-          console.log("Redirect login successful:", result.user.email);
+        if (result?.user) {
+          console.log("Login successful after redirect:", result.user.email);
           setIsLoggingIn(false);
         }
       } catch (err: any) {
-        console.error("Redirect login error:", err);
-        setLoginError(`Sign in failed: ${err.message || 'Please try again.'}`);
+        console.error("Redirect check failed:", err);
       }
     };
     checkRedirect();
@@ -67,7 +62,7 @@ export default function App() {
 
   useEffect(() => {
     async function fetchUserRole() {
-      if (loading) return; // Wait for Firebase to finish checking auth state
+      if (loading) return;
 
       if (!currentUser) {
         setUserRole(null);
@@ -76,28 +71,24 @@ export default function App() {
       }
 
       try {
-        // 1. Hardcoded Admin Email
         if (currentUser.email === 'kthura397@gmail.com') {
           setUserRole('admin');
           if (activeTab === 'booking') setActiveTab('admin-calendar');
           return;
         }
 
-        // 2. Mock Admin
         if (mockUser) {
           setUserRole('admin');
           setActiveTab('admin-calendar');
           return;
         }
 
-        // 3. Database check
         const staffDoc = await getDoc(doc(db, 'staff', currentUser.uid));
         if (staffDoc.exists()) {
           const role = staffDoc.data().role;
           setUserRole(role);
           if (activeTab === 'booking') setActiveTab('admin-calendar');
         } else {
-          // Fallback to Email search (migration)
           const q = query(collection(db, 'staff'), where('email', '==', currentUser.email));
           const snap = await getDocs(q);
           
@@ -112,7 +103,7 @@ export default function App() {
           }
         }
       } catch (err: any) {
-        console.error("Failed to fetch user role:", err);
+        console.error("Role fetch failed:", err);
         setUserRole('customer'); 
       }
     }
@@ -146,28 +137,29 @@ export default function App() {
     const provider = new GoogleAuthProvider();
     
     try {
-      // Smart Login: Popups for localhost, Redirects for production
-      if (window.location.hostname === 'localhost') {
-        console.log("Local environment: Using popup login");
-        const result = await signInWithPopup(auth, provider);
-        if (result.user) {
-          setIsLoggingIn(false);
-        }
-      } else {
-        console.log("Production environment: Using redirect login");
-        await signInWithRedirect(auth, provider);
+      console.log("Attempting Popup login...");
+      const result = await signInWithPopup(auth, provider);
+      if (result.user) {
+        console.log("Popup login success:", result.user.email);
+        setIsLoggingIn(false);
       }
     } catch (err: any) {
-      console.error("Login failed", err);
-      if (err.code === 'auth/operation-not-allowed') {
-        setLoginError('Google sign-in is not enabled in the Firebase console.');
-      } else if (err.code === 'auth/unauthorized-domain') {
-        setLoginError('This domain is not authorized for OAuth. Please add it to the Firebase console.');
-      } else {
-        setLoginError(`Sign in failed: ${err.message || 'Please try again.'}`);
+      console.warn("Popup blocked or failed, falling back to Redirect...", err.code);
+      
+      // If popup is blocked or fails, use redirect as fallback
+      try {
+        await signInWithRedirect(auth, provider);
+      } catch (redirErr: any) {
+        console.error("Redirect fallback failed:", redirErr);
+        if (redirErr.code === 'auth/unauthorized-domain') {
+          setLoginError('This domain is not authorized in the Firebase Console.');
+        } else {
+          setLoginError('Login failed. Please check your internet or browser settings.');
+        }
+        setIsAuthProcessing(false);
       }
     } finally {
-      setIsAuthProcessing(false);
+      // Note: We don't set isAuthProcessing(false) here if redirect was triggered
     }
   };
 
@@ -362,7 +354,7 @@ export default function App() {
           <motion.div 
             initial={{ opacity: 0, scale: 0.9 }}
             animate={{ opacity: 1, scale: 1 }}
-            className="bg-white w-full max-sm rounded-[2.5rem] shadow-2xl p-8 relative overflow-hidden"
+            className="bg-white w-full max-w-sm rounded-[2.5rem] shadow-2xl p-8 relative overflow-hidden"
           >
             <button onClick={() => setIsLoggingIn(false)} className="absolute top-6 right-6 text-brand-400 hover:text-brand-950">
               <X size={24} />
